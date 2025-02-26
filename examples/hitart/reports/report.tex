@@ -16,7 +16,7 @@
 %      `\\//`   \\   \./    \\ /     //    \\./   \\   //   \\ |/ /
 %     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\documentclass[fontset=windows,toc=true,type=bachelor,stage=midterm,campus=harbin]{hithesisart}
+\documentclass[fontset=windows,toc=true,type=bachelor,stage=opening,campus=harbin]{hithesisart}
 % 此处选项中不要有空格
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 必填选项
@@ -39,6 +39,16 @@
 
 
 \graphicspath{{figures/}}
+
+\usepackage{floatrow}
+\usepackage{multirow}
+\usepackage{algorithm}         
+\usepackage{algpseudocode}      
+\usepackage{algorithmicx}       
+\floatsetup[table]{capposition=below}
+\newfloatcommand{capbtabbox}{table}[][\FBwidth]
+\renewcommand{\algorithmicrequire}{ \textbf{Input:}}     %Use Input in the format of Algorithm
+\renewcommand{\algorithmicensure}{ \textbf{Output:}}    %UseOutput in the format of Algorithm
 
 
 \begin{document}

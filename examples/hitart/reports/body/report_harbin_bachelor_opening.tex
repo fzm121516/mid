@@ -1,14 +1,159 @@
-\section{课题来源及研究的目	的和意义}
-（正文  宋体小4号字，行距1.25倍，段前0行，段后0行）
-\section{国内外在该方向的研究现状及分析}
-\section{主要研究内容}
-\section{研究方案}
-\section{进度安排，预期达到的目标}
-\section{课题已具备和所需的条件、经费}
-\section{研究过程中可能遇到的困难和问题，解决的措施}
-\section{主要参考文献}
-\bibliographystyle{hithesis}
-\bibliography{reference}
+
+
+
+\section{论文（设计）工作是否按开题报告预定的内容及进度安排进行}
+
+已完成研究方案的设计与实现，对比实验还没全部跑完，并且图表还需要改一下。下面是已完成的部分。
+
+\section{已完成的研究工作及成果}
+
+\subsection{研究方案}
+在本节中，将介绍图像伪造检测方法STE-CLIP的整体框架。
+具体而言，如第~\ref{sec:STE}节所述，
+合成痕迹嵌入（Synthetic Trace Embedding, STE）
+通过分析图像与其重采样版本之间的差异来提取图像特征，
+并将图像映射到一个对伪造敏感的嵌入空间。
+接着，第~\ref{sec:DTP}节介绍了动态文本提示（Dynamic Text Prompts），
+其能够动态生成与图像特征相关且自适应的文本提示，
+从而提升图像伪造检测系统在各类生成图像中的泛化能力。
+最后，第~\ref{sec:lora}节概述了优化过程以及相关的损失函数。
+
+
+\subsubsection{合成痕迹嵌入}
+\label{sec:STE}
+为了提高对图像伪造的检测能力，我们采用合成痕迹嵌入(Synthetic Trace Embeddings, STE)
+将输入图像转换为捕捉合成痕迹的嵌入，使其对伪造更加敏感。然后将这些嵌入集成到CLIP图像编码器中。
+
+给定输入图像 $ x \in \mathbb{R}^{3 \times H \times W} $，
+其中 $ H $ 和 $ W $ 分别表示图像的高度和宽度，
+图像由3个颜色通道（RGB）组成，CLIP模型使用图像块嵌入将图像转换为
+图像嵌入 $ z_{\text{img}} \in \mathbb{R}^{(1 + N) \times D_{img}} $。
+这里，$ N = \frac{H \times W}{P^2} $ 是总图像块数，其中 $ P $ 是图像块大小，
+$ D_{img} $ 是图像嵌入空间的维度。值 $ 1 $ 对应于CLS标记，用于聚合所有图像块的信息。
+\begin{equation}
+    z_{\text{img}} = \text{PatchEmbedding}(x)
+\end{equation}
+
+图像与其重采样版本之间的差异已被认为是有效的合成痕迹 \cite{tan2024rethinking}。基于这一见解，我们使用这些差异作为合成痕迹嵌入（STE）的输入：
+\begin{equation}
+z_{\text{ste}} = \text{STE}\left( x - \text{Resample}(x)\right)
+\end{equation}
+其中 $ z_{\text{ste}} \in \mathbb{R}^{M \times D_{img}} $ 表示STE的输出，$ M $ 表示嵌入序列长度。
+
+在CLIP图像编码器中，令 $ z_{\mathrm{img}}^{(0)} = z_{\mathrm{img}} $ 表示初始图像嵌入。
+然后，$ z_{\mathrm{ste}} $ 被选择性地集成到CLIP编码器的特定层中。
+对于预定义的集成层集合 $ \mathcal{S} \subseteq \{1, \dots, L\} $，
+其中 $ L $ 是CLIP编码器的总层数，集成过程在算法~\ref{alg:fusion} 中详细描述。
+
+\begin{algorithm}[!ht]
+\caption{将STE集成到CLIP中}\label{alg:fusion}
+\begin{algorithmic}[1]
+\Require ${z}_{\text{img}}^{(l-1)}$, $z_{\text{ste}} $, 集成层 $\mathcal{S}$
+\Ensure ${z}_{\text{img}}^{(l)}$
+
+\If{$l \in \mathcal{S}$}
+    % \State \textcolor{gray}{// 特征集成阶段}  \label{line:phase}
+    \If{$l = \min(\mathcal{S})$}
+        \State $\widetilde{z}_{\text{img}}^{(l-1)} \gets 
+               \underbrace{\left[ z_{\text{img}}^{(l-1)} ;z_{\text{ste}} \right]}_{\mathbb{R}^{(1+N+M)\times D_{img}}}$ 
+        \Comment{初始拼接} \label{line:concat}
+    \Else
+        % \State \textcolor{gray}{// 分割-合并操作:}
+        \State $z_{\text{base}}^{(l-1)} \gets z_{\text{img},0:N+1}^{(l-1)}$ 
+               \Comment{类别 + 图像块标记} \label{line:base}
+        \State $z_{\text{ste}}^{(l-1)} \gets 
+               \underbrace{z_{\text{img},N+1:N+M+1}^{(l-1)} \oplus z_{\text{ste}}}_{\text{加法融合}}$ 
+               \label{line:fusion}
+        \State $\widetilde{z}_{\text{img}}^{(l-1)} \gets 
+               \left[ z_{\text{base}}^{(l-1)} ; z_{\text{ste}}^{(l-1)} \right]$ \label{line:merge}
+    \EndIf
+    \State ${z}_{\text{img}}^{(l)} \gets 
+           EncoderLayer_{\text{img}}^{(l)}\left( \widetilde{z}_{\text{img}}^{(l-1)} \right)$ \label{line:encode}
+\Else
+    \State ${z}_{\text{img}}^{(l)} \gets 
+           EncoderLayer_{\text{img}}^{(l)}\left( z_{\text{img}}^{(l-1)} \right)$ \label{line:bypass}
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+最终图像特征通过视觉投影操作获得，可以表示为：
+\begin{equation}
+    f_{\text{img}} = P_{\text{img}}\left(e_{\text{img}}^{(L)}\right),
+\end{equation}
+其中 $ P_{\text{img}}(\cdot) $ 表示视觉投影层，
+它将编码的图像特征 $ e_{\text{img}}^{(L)} $ 转换为最终的特征表示 $ f_{\text{img}}\in \mathbb{R}^{D_{img}} $。
+
+\subsubsection{动态文本提示}
+\label{sec:DTP}
+
+本研究提出的方法通过视觉和文本特征之间的跨模态对比学习来进行图像真实性验证。我们引入了动态文本提示以增强这一过程。
+
+为了实现这一点，我们定义了两个固定文本模板，分别对应真实图像和合成图像：
+\begin{align}
+    t_0 &= \text{``A real photo of''} \\
+    t_1 &= \text{``A synthetic photo of''}
+\end{align}
+这些模板随后通过预训练的语言模型转换为文本嵌入：
+\begin{equation}
+    z_{\text{text}}^i = TextEmbedding(t_i), \quad i \in \{0, 1\}
+\end{equation}
+其中 $ z_{\text{text}}^i \in \mathbb{R}^{K \times D_{\text{text}}} $ 表示文本嵌入，
+$ K $ 表示模板中的标记数量，$ D_{\text{text}} $ 表示每个标记的嵌入维度。
+% 这些嵌入稍后用于在跨模态对比学习框架中创建动态文本表示。
+
+由于图像特征 $ f_{\text{img}} $ 和文本嵌入 $ z_{\text{text}}^i $ 的维度相等，
+我们将它们拼接以生成动态文本表示：
+\begin{equation}
+\widetilde{z}_{\text{text}}^{i} = [z_{\text{text}}^i; f_{\text{img}}], \quad  i \in \{0,1\}
+\end{equation}
+其中 $[\cdot;\cdot]$ 表示沿序列维度的拼接。
+这种动态组合使得文本提示能够基于视觉输入进行上下文感知的调整，
+从而生成模态特定的表示。这些表示经过优化，更适合对比学习目标，
+增强了模型辨别图像真实性的能力。
+
+动态组合的文本表示 $ \widetilde{z}_{\text{text}}^{i} $ 随后通过CLIP的文本编码器和文本投影层 $ P_{\text{text}} $ 进行处理，以获得最终的文本表示：
+\begin{equation}
+f_{\text{text}}^i = P_{\text{text}}\left(\text{Encoder}_\text{text}(\widehat{z}_{\text{text}}^{i})\right) \quad \forall i \in \{0,1\}
+\end{equation}
+
+最后，视觉和文本特征表示 $ f_{\text{img}} $ 和 $ f_{\text{text}} $ 通过对比学习进行优化。
+
+
+\subsubsection{优化流程}
+\label{sec:lora}
+
+“真实”与“合成”图像的区分通过测量图像特征与文本嵌入之间的余弦相似度来实现。对于输入图像样本 $ x $，其属于类别 $ i $ 的概率 $ P(i) $ 计算如下：
+
+\begin{equation}
+P(i) = \frac{\exp\left(\cos(f_{\text{text}}^i, f_{\text{img}})/\tau\right)}{\sum_{j=0}^1 \exp\left(\cos(f_{\text{text}}^j, f_{\text{img}})/\tau\right)},\quad i \in \{0,1\}
+\label{eq:probability}
+\end{equation}
+其中 $ t_i $ 表示类别 $ i $ 的文本特征，$ f_\text{img} $ 表示图像特征向量，$ \tau $ 是温度参数。
+
+我们利用低秩适应（LoRA）来微调CLIP图像编码器中自注意力层的Key、Value和Query投影矩阵，以及视觉投影层和文本投影层。
+优化目标是最小化二元交叉熵损失：
+\begin{equation}
+L = -y \cdot \log P(y) - (1 - y) \cdot \log(1 - P(y))
+\label{eq:loss}
+\end{equation}
+其中 $ P(y) $ 表示模型预测输入样本属于正类（$ y = 1 $）的概率。
+
+
+
+% \section{后期拟完成的研究工作及进度安排}
+
+
+
+% \section{存在的问题与困难}
+% \section{论文按时完成的可能性}
+
+
+% \section{参考文献}
+
+
+% % \bibliographystyle{hithesis}
+% \bibliographystyle{gbt7714-numerical}
+% \bibliography{reference}
 
 % Local Variables:
 % TeX-master: "../mainart"
